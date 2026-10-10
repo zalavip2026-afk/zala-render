@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+*.mp4
+*.mp3
+*.wav
+*.m4a
+media/cache/
+media/out/
+media/tmp/
+media/brand/fonts/
+content/youtube/*.json
+!content/youtube/pronunciation.json

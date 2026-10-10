@@ -1,0 +1,82 @@
+name: Render episode
+
+# Renders one episode in the cloud: script + narration are pulled from private R2 storage,
+# open-license images/footage are fetched, the video is rendered with ffmpeg, checked,
+# and the result is written back to R2 (renders/<id>.mp4). Nothing is stored in this repository.
+on:
+  workflow_dispatch:
+    inputs:
+      episode:
+        description: "Episode id, e.g. ZV003 (needs episodes/<id>/script.json and episodes/<id>/voice.mp3 in R2)"
+        required: true
+        type: string
+
+concurrency:
+  group: render
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      EP: ${{ inputs.episode }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install tools and fonts
+        working-directory: media
+        run: |
+          npm ci
+          node tools/fetch-fonts.mjs
+
+      - name: Fetch script and narration from R2
+        run: |
+          set -euo pipefail
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          mkdir -p content/youtube media/cache/voice
+          aws s3 cp "s3://${R2_BUCKET}/episodes/${EP}/script.json" "content/youtube/${EP}.json" --endpoint-url "$ENDPOINT"
+          aws s3 cp "s3://${R2_BUCKET}/episodes/${EP}/voice.mp3" "media/cache/voice/${EP}.mp3" --endpoint-url "$ENDPOINT"
+          ls -la content/youtube media/cache/voice
+
+      - name: Pick images and footage
+        working-directory: media
+        run: |
+          node tools/prep-assets.mjs "../content/youtube/${EP}.json" | tee "tmp-prep-${EP}.log"
+          node tools/review-sheets.mjs "../content/youtube/${EP}.json"
+
+      - name: Render
+        working-directory: media
+        run: node cinema.mjs "../content/youtube/${EP}.json" final
+
+      - name: Quality gate (duration and audio)
+        working-directory: media
+        run: |
+          set -euo pipefail
+          FF=$(node -e "console.log(require('ffmpeg-static'))")
+          OUT="out/${EP}.mp4"
+          test -s "$OUT"
+          "$FF" -hide_banner -nostats -i "$OUT" -map 0:a -af ebur128=peak=true -f null - 2> gate.txt || true
+          LUFS=$(grep -E "^\s+I:" gate.txt | tail -1 | awk '{print $2}')
+          PEAK=$(grep -E "^\s+Peak:" gate.txt | tail -1 | awk '{print $2}')
+          echo "loudness: ${LUFS} LUFS, true peak: ${PEAK} dBFS"
+          awk -v l="$LUFS" -v p="$PEAK" 'BEGIN { if (l < -17 || l > -12) { print "FAIL: loudness out of range"; exit 1 } if (p > -0.5) { print "FAIL: true peak above -0.5 dBFS"; exit 1 } }'
+
+      - name: Upload render and review sheets to R2
+        run: |
+          set -euo pipefail
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp "media/out/${EP}.mp4" "s3://${R2_BUCKET}/renders/${EP}.mp4" --endpoint-url "$ENDPOINT"
+          for f in media/tmp/${EP}-assets/review-*.jpg; do
+            aws s3 cp "$f" "s3://${R2_BUCKET}/renders/${EP}-$(basename "$f")" --endpoint-url "$ENDPOINT"
+          done
