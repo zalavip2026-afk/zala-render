@@ -27,9 +27,17 @@ async function getJson(url, headers = {}) {
 async function download(url, ext) {
   const file = path.join(DIR, `${hash(url)}${ext}`);
   if (fs.existsSync(file) && fs.statSync(file).size > 5000) return file;
-  const res = await fetch(url, { headers: { 'User-Agent': UA } });
+  let res;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    res = await fetch(url, { headers: { 'User-Agent': UA } });
+    if (res.ok) break;
+    if (res.status !== 429 && res.status < 500) break;
+    const wait = Math.max(Number(res.headers.get('retry-after')) || 0, 2 ** attempt * 1.5) * 1000;
+    await new Promise((r) => setTimeout(r, wait));
+  }
   if (!res.ok) throw new Error(`download ${res.status} ${url}`);
   fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+  await new Promise((r) => setTimeout(r, 400));
   return file;
 }
 
@@ -150,6 +158,7 @@ export async function findAsset(item, { orientation, used, preferVideo = true })
     wikimedia: ['wikimedia', 'pexels', 'pixabay', 'met'], met: ['met', 'wikimedia', 'pexels', 'pixabay'],
   };
   let sources = order[item.source_hint] || ['pexels', 'pixabay', 'wikimedia', 'met'];
+  sources = sources.filter((x) => x !== 'met'); // the Met API now answers 410
   if (item.wikiOnly) sources = sources.filter((x) => x !== 'pexels' && x !== 'pixabay');
   for (const s of sources) {
     try {

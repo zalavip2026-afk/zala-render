@@ -27,12 +27,20 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      FFPROBE_PATH: /usr/bin/ffprobe
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Install ffmpeg (full build with subtitles and text rendering)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          ffmpeg -hide_banner -filters | grep -E " (subtitles|drawtext|xfade|zoompan) "
 
       - name: Install tools and fonts
         working-directory: media
@@ -63,7 +71,7 @@ jobs:
         working-directory: media
         run: |
           set -euo pipefail
-          FF=$(node -e "console.log(require('ffmpeg-static'))")
+          FF=/usr/bin/ffmpeg
           OUT="out/${EP}.mp4"
           test -s "$OUT"
           "$FF" -hide_banner -nostats -i "$OUT" -map 0:a -af ebur128=peak=true -f null - 2> gate.txt || true
