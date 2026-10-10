@@ -89,7 +89,7 @@ async function pixabay(query, orientation, wantVideo, used) {
 }
 
 // ── Wikimedia Commons ─────────────────────────────────────────────────────────
-async function wikimedia(query, used) {
+async function wikimedia(query, used, avoid = []) {
   const api = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=12' +
     `&gsrsearch=${encodeURIComponent(`filetype:bitmap ${query}`)}&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=2400`;
   const j = await getJson(api);
@@ -99,6 +99,7 @@ async function wikimedia(query, used) {
   const pages = Object.values(j.query?.pages || {})
     .sort((a, b) => score(b) - score(a) || (a.index || 0) - (b.index || 0));
   for (const p of pages) {
+    if (avoid.some((w) => String(p.title || '').toLowerCase().includes(String(w).toLowerCase()))) continue;
     const ii = p.imageinfo?.[0];
     if (!ii || used.has(`wm-${p.pageid}`)) continue;
     const meta = ii.extmetadata || {};
@@ -154,7 +155,7 @@ export async function findAsset(item, { orientation, used, preferVideo = true })
     try {
       const a = s === 'pexels' ? await pexels(item.query, orientation, preferVideo, used)
         : s === 'pixabay' ? await pixabay(item.query, orientation, preferVideo, used)
-        : s === 'wikimedia' ? await wikimedia(item.query, used)
+        : s === 'wikimedia' ? await wikimedia(item.query, used, item.avoid || [])
         : await met(item.query, used);
       if (a) return a;
     } catch (err) {

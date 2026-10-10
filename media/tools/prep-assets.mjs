@@ -28,7 +28,7 @@ for (const [ci, ch] of script.chapters.entries()) for (const [li, ln] of ch.line
   if (!ln.shot) continue;
   const q = ln.shot.q; const key = `${ci}.${li}`;
   const isV = !!ln.shot.v;
-  const item = pins[q] ? { query: q, ...pins[q] } : { query: q, source_hint: (isV || ln.shot.stockFirst) ? 'pixabay' : 'wikimedia', wikiOnly: !isV && !ln.shot.stock && !ln.shot.stockFirst };
+  const item = pins[q] ? { query: q, ...pins[q] } : { query: q, source_hint: (isV || ln.shot.stockFirst) ? 'pixabay' : 'wikimedia', wikiOnly: !isV && !ln.shot.stock && !ln.shot.stockFirst, avoid: script.avoid || [] };
   const a = await findAsset(item, { orientation: 'landscape', used, preferVideo: isV });
   out[key] = a ? { q, kind: a.kind, file: a.file, attribution: a.attribution, url: a.url, license: a.license } : null;
   console.log(`${String(++n).padStart(2)} ${a ? 'OK ' : 'NONE'} | ${q} | ${a ? a.attribution.slice(0, 85) : ''}`);
